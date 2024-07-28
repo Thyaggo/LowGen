@@ -5,6 +5,8 @@ import math
 
 from typing import Optional
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 from memory_profiler import profile
 
 class FeedForwardBlock(nn.Module):
@@ -111,7 +113,6 @@ class MultiHeadAttentionBlock(nn.Module):
         # return attention scores which can be used for visualization
         return (attention_scores @ value), attention_scores
         
-    @profile
     def forward(self, q, k, v, mask, flash_attention: bool = True, is_casual: bool = False):
         query = self.w_q(q) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
         key = self.w_k(k) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
@@ -294,11 +295,11 @@ class Transformer(nn.Module):
             proj[:,i] = proj_layer(x)
         return proj
 
-
+@profile
 def test():
-    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=1000)
-    src = torch.randint(0, 1025, (4, 8, 1000))
-    tgt = torch.randint(0, 1025, (4, 8, 1000))
+    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=1000).to(DEVICE)
+    src = torch.randint(0, 1025, (4, 8, 1000)).to(DEVICE)
+    tgt = torch.randint(0, 1025, (4, 8, 1000)).to(DEVICE)
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
     enc = model.encode(src)
