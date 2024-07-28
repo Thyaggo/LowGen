@@ -5,6 +5,8 @@ import math
 
 from typing import Optional
 
+from memory_profiler import profile
+
 class FeedForwardBlock(nn.Module):
 
     def __init__(self, d_model: int, d_ff: int, dropout: float) -> None:
@@ -88,11 +90,12 @@ class MultiHeadAttentionBlock(nn.Module):
         self.w_v = nn.Linear(d_model, d_model, bias=False) # Wv
         self.w_o = nn.Linear(d_model, d_model, bias=False) # Wo
         self.dropout = nn.Dropout(dropout)
+        self.dropoutvalue = dropout
 
     @staticmethod
-    def attention(query, key, value, mask, dropout: nn.Dropout, flash_attention: bool = True, is_casual = False):
+    def attention(query, key, value, mask, dropout, flash_attention: bool = True, is_casual = False):
         if flash_attention:
-            return F.scaled_dot_product_attention(query, key, value, mask, dropout, is_causal=is_casual)
+            return F.scaled_dot_product_attention(query, key, value, mask, dropout, is_causal=is_casual), None
         
         d_k = query.shape[-1]
         # Just apply the formula from the paper
@@ -107,8 +110,9 @@ class MultiHeadAttentionBlock(nn.Module):
         # (batch, h, seq_len, seq_len) --> (batch, h, seq_len, d_k)
         # return attention scores which can be used for visualization
         return (attention_scores @ value), attention_scores
-
-    def forward(self, q, k, v, mask, flash_attention: bool = False, is_casual = False):
+        
+    @profile
+    def forward(self, q, k, v, mask, flash_attention: bool = True, is_casual: bool = False):
         query = self.w_q(q) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
         key = self.w_k(k) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
         value = self.w_v(v) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
@@ -119,7 +123,9 @@ class MultiHeadAttentionBlock(nn.Module):
         value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(1, 2)
 
         # Calculate attention
-        x, self.attention_scores = MultiHeadAttentionBlock.attention(query, key, value, mask, self.dropout, flash_attention)
+        x, self.attention_scores = MultiHeadAttentionBlock.attention(query, key, value, mask, 
+                                                                     self.dropoutvalue if flash_attention else self.dropout, 
+                                                                     flash_attention, is_casual)
         
         # Combine all the heads together
         # (batch, h, seq_len, d_k) --> (batch, seq_len, h, d_k) --> (batch, seq_len, d_model)
@@ -138,7 +144,7 @@ class EncoderBlock(nn.Module):
         self.self_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout)
         self.feed_forward_block = FeedForwardBlock(d_model, d_ff, dropout)
         self.residual_connections = nn.ModuleList([ResidualConnection(d_model, dropout) for _ in range(2)])
-
+    
     def forward(self, x, src_mask):
         x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
         x = self.residual_connections[1](x, self.feed_forward_block)
@@ -152,7 +158,7 @@ class Encoder(nn.Module):
         super().__init__()
         self.layers = nn.ModuleList([layer for _ in range(num_layers)])
         self.norm = nn.LayerNorm(d_model)
-
+        
     def forward(self, x, mask):
         for layer in self.layers:
             x = layer(x, mask)
@@ -229,7 +235,8 @@ class Transformer(nn.Module):
         self.decoder = Decoder(d_model, self.decoder_block, num_decoder_layers)
 
         self.projection_layer = nn.ModuleList([CoodebookRecontructionLayer(d_model, codebook_size) for _ in range(codebook_num)])
-        
+
+        self.apply(self._init_weights)
         
 
     @property
@@ -244,14 +251,14 @@ class Transformer(nn.Module):
     def codebook_size(self):
         return self._codebook_size
     
-    def _init_weights(module):
+    def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-
+    
     def encode(self, src: torch.Tensor, src_mask: Optional[torch.Tensor] = None):
         # (batch, seq_len, d_model)
         B, K, T = src.shape
@@ -286,11 +293,12 @@ class Transformer(nn.Module):
         for i, proj_layer in enumerate(self.projection_layer):
             proj[:,i] = proj_layer(x)
         return proj
-        
+
+
 def test():
-    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=100)
-    src = torch.randint(0, 1025, (4, 8, 100))
-    tgt = torch.randint(0, 1025, (4, 8, 100))
+    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=1000)
+    src = torch.randint(0, 1025, (4, 8, 1000))
+    tgt = torch.randint(0, 1025, (4, 8, 1000))
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
     enc = model.encode(src)

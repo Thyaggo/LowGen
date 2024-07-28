@@ -76,7 +76,7 @@ def train_model(config):
     for epoch in range(config["epochs"]):
         model.train()
         torch.cuda.empty_cache()
-        batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
+        batch_iterator = tqdm(val_dataloader, desc=f"Processing Epoch {epoch:02d}")
         for i, data in enumerate(batch_iterator):
 
             input_codes = data["input_codes"].to(DEVICE) # (B, K, T)
@@ -89,6 +89,7 @@ def train_model(config):
             encoder_output = model.encode(input_codes)
             print("Done Encode")
             decode_output = model.decode(encoder_output, label_input)
+            print("Done Decode")
             proj_output = model.project(decode_output)
 
             loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
@@ -100,7 +101,7 @@ def train_model(config):
             
             print(f"Epoch {epoch}, Batch {i}, Loss {loss.item()}")
 
-        run_validation(config, model, tokenizer_model,val_dataloader)
+        run_validation(config, model, tokenizer_model, val_dataloader)
 
 def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecModel, val_dataloader: DataLoader):
     model.eval()
@@ -108,36 +109,38 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
 
     with torch.no_grad():
         for batch in val_dataloader:
-            input_codes = batch["input_codes"].to(DEVICE) # (B, K, T)
-            input_mask = batch["input_mask"].to(DEVICE) # (B, T)
+            input = batch["input_codes"].to(DEVICE) # (B, K, T)
+            #input_mask = batch["input_mask"].to(DEVICE) # (B, T)
 
             # check that the batch size is 1
-            assert input_codes.size(0) == 1, "Batch size must be 1 for validation"
+            assert input.size(0) == 1, "Batch size must be 1 for validation"
+            
+            input = model.encode(input)
             
             # Initialize the decoder input with the sos token
-            label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["special_token"]).type_as(input_codes).to(DEVICE)
+            label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["special_token"]).type_as(input).to(DEVICE)
             while True:
                 if label_input.size(2) == config["max_token_len"]:
                     break
 
-                # build mask for target
-                tgt_mask = model.generate_square_subsequent_mask(label_input.size(2)).type_as(input_mask).to(DEVICE)
+                # # build mask for target
+                # tgt_mask = model.generate_square_subsequent_mask(label_input.size(2)).type_as(input_mask).to(DEVICE)
 
                 # calculate output
-                out = model(src=input_codes,tgt=label_input, tgt_mask=tgt_mask)
+                out = model.decode(src=input, tgt=label_input)
 
                 # get next token
-                prob = out[:, -1]
+                prob = model.project(out[:, -1])
                 _, next_word = torch.max(prob, dim=-1)
-                decoder_input = torch.cat(
-                    [decoder_input, torch.empty(1, config["codebook_num"], 1).type_as(input_codes).fill_(next_word.item()).to(DEVICE)], dim=2
+                label_input = torch.cat(
+                    [label_input, torch.empty(1, config["codebook_num"], 1).type_as(input).fill_(next_word.item()).to(DEVICE)], dim=2
                 )
 
                 if next_word[:, -2] == config["special_token"]:
                     break
 
-        partern = pattern_provider.get_pattern(decoder_input.size(2))
-        values , _ , _ = partern.revert_pattern_sequence(decoder_input.unsqueeze(0), special_token=config["special_token"])
+        partern = pattern_provider.get_pattern(label_input.size(2))
+        values , _ , _ = partern.revert_pattern_sequence(label_input.unsqueeze(0), special_token=config["special_token"])
 
         wave = tokenizer_model.decode((values, None))
 
