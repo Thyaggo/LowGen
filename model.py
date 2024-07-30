@@ -274,7 +274,7 @@ class Transformer(nn.Module):
         src = self.pos(src)
         return self.encoder(src, src_mask)
     
-    def decode(self, encoder_output: torch.Tensor, tgt: torch.Tensor, src_mask: Optional[torch.Tensor] = None, tgt_mask: Optional[torch.Tensor] = None):
+    def decode(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: Optional[torch.Tensor] = None, tgt_mask: Optional[torch.Tensor] = None):
         # (batch, seq_len, d_model)
         B, K, T = tgt.shape
 
@@ -285,12 +285,12 @@ class Transformer(nn.Module):
             embeds[:,i] = emb(tgt[:,i])
         embeds = embeds.sum(dim=1)
         tgt = self.pos(embeds)
-        return self.decoder(tgt, encoder_output, src_mask, tgt_mask)
+        return self.decoder(tgt, src, src_mask, tgt_mask)
     
     def project(self, x):
         # (batch, seq_len, vocab_size)
-        B, T, _ = x.shape
-        proj = torch.empty(B, self.codebook_num, T, self.codebook_size).to(x.device)
+        B, _ = x.shape
+        proj = torch.empty(B, self.codebook_num, self.codebook_size).to(x.device)
         for i, proj_layer in enumerate(self.projection_layer):
             proj[:,i] = proj_layer(x)
         return proj
