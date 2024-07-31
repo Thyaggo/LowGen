@@ -1,13 +1,13 @@
 def get_config():
     return {
         # General parameters
-        "data_path": "data_path.pkl",
+        "data_path": "audio_files.jsonl",
         "dir_inputs": "data/inputs",
         "dir_labels": "data/labels",
         "stereo": False,
         "batch_size": 1,
         "masking": False,
-        "epochs": 10,
+        "epochs": 1,
         "lr": 10**-4,
         "max_duration": 90,
         "max_token_len": 7500,

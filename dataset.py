@@ -31,7 +31,14 @@ class LowDataset(Dataset):
         super().__init__()
         
         with open(data_path, "rb") as f:
-            self.data_path = pickle.load(f)
+            if "jsonl" in data_path:
+                self.data_path = pd.read_json(f, orient="records", lines=True)
+            elif "csv" in data_path:
+                self.data_path = pd.read_csv(f)
+            elif "pkl" in data_path:
+                self.data_path = pickle.load(f)
+            else:
+                raise ValueError("Invalid data path")
             
         self.device = device
         

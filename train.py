@@ -73,33 +73,30 @@ def train_model(config):
     
     model: Transformer = torch.compile(model)
 
-    # for epoch in range(config["epochs"]):
-    #     model.train()
-    #     torch.cuda.empty_cache()
-    #     batch_iterator = tqdm(val_dataloader, desc=f"Processing Epoch {epoch:02d}")
-    #     for i, data in enumerate(batch_iterator):
+    for epoch in range(config["epochs"]):
+        model.train()
+        torch.cuda.empty_cache()
+        batch_iterator = tqdm(val_dataloader, desc=f"Processing Epoch {epoch:02d}")
+        for i, data in enumerate(batch_iterator):
 
-    #         input_codes = data["input_codes"].to(DEVICE) # (B, K, T)
-    #         #input_mask = data["input_mask"].to(DEVICE) # (B, T)
-    #         label_input = data["label_input"].to(DEVICE) # (B, K, T)
-    #         label_codes = data["label_codes"].to(DEVICE) # (B, K, T)
-    #         #decoder_mask = data["label_mask"].to(DEVICE) # (B, T) & (B, T, T)
-    #         print("Done")
+            input_codes = data["input_codes"].to(DEVICE) # (B, K, T)
+            #input_mask = data["input_mask"].to(DEVICE) # (B, T)
+            label_input = data["label_input"].to(DEVICE) # (B, K, T)
+            label_codes = data["label_codes"].to(DEVICE) # (B, K, T)
+            #decoder_mask = data["label_mask"].to(DEVICE) # (B, T) & (B, T, T)
             
-    #         encoder_output = model.encode(input_codes)
-    #         print("Done Encode")
-    #         decode_output = model.decode(encoder_output, label_input)
-    #         print("Done Decode")
-    #         proj_output = model.project(decode_output)
+            encoder_output = model.encode(input_codes)
+            decode_output = model.decode(encoder_output, label_input)
+            proj_output = model.project(decode_output)
 
-    #         loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
+            loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
             
-    #         loss.backward()
-    #         optimizer.step()
+            loss.backward()
+            optimizer.step()
             
-    #         optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad(set_to_none=True)
             
-    #         print(f"Epoch {epoch}, Batch {i}, Loss {loss.item()}")
+            print(f"Epoch {epoch}, Batch {i}, Loss {loss.item()}")
 
     run_validation(config, model, tokenizer_model, val_dataloader)
 

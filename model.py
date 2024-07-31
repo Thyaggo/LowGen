@@ -289,17 +289,16 @@ class Transformer(nn.Module):
     
     def project(self, x):
         # (batch, seq_len, vocab_size)
-        B, _ = x.shape
-        proj = torch.empty(B, self.codebook_num, self.codebook_size).to(x.device)
+        proj = torch.empty(x.shape[0], self.codebook_num, x.shape[1], self.codebook_size).to(x.device)
         for i, proj_layer in enumerate(self.projection_layer):
             proj[:,i] = proj_layer(x)
         return proj
 
 @profile
 def test():
-    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=1000).to(DEVICE)
-    src = torch.randint(0, 1025, (4, 8, 1000)).to(DEVICE)
-    tgt = torch.randint(0, 1025, (4, 8, 1000)).to(DEVICE)
+    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=10000).to(DEVICE)
+    src = torch.randint(0, 1025, (4, 8, 10000)).to(DEVICE)
+    tgt = torch.randint(0, 1025, (4, 8, 10000)).to(DEVICE)
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
     enc = model.encode(src)
