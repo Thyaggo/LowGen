@@ -117,7 +117,7 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
             # Initialize the decoder input with the sos token
             label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["special_token"]).type_as(input_codes).to(DEVICE)
             while True:
-                if label_input.size(2) == config["max_token_len"]:
+                if label_input.size(2) == 10:
                     break
 
                 # # build mask for target
