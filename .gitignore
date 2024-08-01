@@ -13,7 +13,8 @@
 /.zcompdump
 /.zsh_history
 /.zshrc
-**/__pycache__/
+/__pycache__
+/.encodec
 /data
 /resampling.mp3
 /.condarc

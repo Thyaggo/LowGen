@@ -134,13 +134,13 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                     [label_input, next_word], dim=2
                 )
 
-                if next_word[:, -2] == config["special_token"]:
+                if torch.all(next_word[:,:config["codebook_num"]-1] == torch.empty(1, config["codebook_num"]-1, 1).fill_(config["special_token"]).type_as(input_codes).to(DEVICE)):
                     break
 
         partern = pattern_provider.get_pattern(label_input.size(2))
         values , _ , _ = partern.revert_pattern_sequence(label_input, special_token=config["special_token"])
 
-        wave = tokenizer_model.decode((values, None))
+        wave = tokenizer_model.decode([(values, None)])
 
         torchaudio.save(f"output.wav", wave, 24000)
 

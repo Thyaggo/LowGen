@@ -188,7 +188,7 @@ class EncodecModel(nn.Module):
         emb = emb.transpose(1, 2)
         return emb
 
-    def decode(self, encoded_frames: tp.List[EncodedFrame], emb_only: bool = False) -> torch.Tensor:
+    def decode(self, encoded_frames: tp.List[EncodedFrame]) -> torch.Tensor:
         """Decode the given frames into a waveform.
         Note that the output might be a bit bigger than the input. In that case,
         any extra steps at the end can be trimmed.
@@ -196,14 +196,9 @@ class EncodecModel(nn.Module):
         segment_length = self.segment_length
         if segment_length is None:
             assert len(encoded_frames) == 1
-            if emb_only:
-                return self._decode_emb(encoded_frames[0].transpose(1, 2))
-            else:
-                return self._decode_frame(encoded_frames[0].transpose(1, 2))
-        if emb_only:
-            frames = [self._decode_emb(frame.transpose(1, 2)) for frame in encoded_frames]
-        else:
-            frames = [self._decode_frame(frame.transpose(1, 2)) for frame in encoded_frames]
+            return self._decode_frame(encoded_frames[0])
+
+        frames = [self._decode_frame(frame) for frame in encoded_frames]
         return _linear_overlap_add(frames, self.segment_stride or 1)
 
     def _decode_frame(self, encoded_frame: EncodedFrame) -> torch.Tensor:
@@ -213,15 +208,6 @@ class EncodecModel(nn.Module):
         out = self.decoder(emb)
         if scale is not None:
             out = out * scale.view(-1, 1, 1)
-        return out
-    
-    def _decode_emb(self, emb: torch.Tensor) -> torch.Tensor:
-        # codes, scale = encoded_frame
-        # codes = codes.transpose(0, 1)
-        # emb = self.quantizer.decode(codes)
-        out = self.decoder(emb)
-        # if scale is not None:
-        #     out = out * scale.view(-1, 1, 1)
         return out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
