@@ -7,8 +7,6 @@ from typing import Optional
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-from memory_profiler import profile
-
 class FeedForwardBlock(nn.Module):
 
     def __init__(self, d_model: int, d_ff: int, dropout: float) -> None:
@@ -294,7 +292,6 @@ class Transformer(nn.Module):
             proj[:,i] = proj_layer(x)
         return proj
 
-@profile
 def test():
     model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=10000).to(DEVICE)
     src = torch.randint(0, 1025, (4, 8, 10000)).to(DEVICE)

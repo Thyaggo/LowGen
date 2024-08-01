@@ -28,7 +28,7 @@ def get_dataloader(config, tokenizer_model):
 
     train_ds_size = int(0.9 * len(ds_raw))
     val_ds_size = len(ds_raw) - train_ds_size
-    train_ds, val_ds = random_split(ds_raw, [train_ds_size, val_ds_size])
+    train_ds, val_ds = random_split(ds_raw, [469, 1])
 
     train_dataloader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True)
     val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
@@ -127,18 +127,18 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                 out = model.decode(src=input, tgt=label_input)
 
                 # get next token
-                prob = model.project(out[:, -1])
+                prob = model.project(out[:, -1].unsqueeze(1))
                 _, next_word = torch.max(prob, dim=-1)
                 
                 label_input = torch.cat(
-                    [label_input, next_word.unsqueeze(2)], dim=2
+                    [label_input, next_word], dim=2
                 )
 
                 if next_word[:, -2] == config["special_token"]:
                     break
 
         partern = pattern_provider.get_pattern(label_input.size(2))
-        values , _ , _ = partern.revert_pattern_sequence(label_input.unsqueeze(0), special_token=config["special_token"])
+        values , _ , _ = partern.revert_pattern_sequence(label_input, special_token=config["special_token"])
 
         wave = tokenizer_model.decode((values, None))
 
