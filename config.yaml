@@ -9,7 +9,7 @@ LowDataset:
   max_token_len: 7500
   codebook_size: 1027
   pad_token: 1025
-  bos_toke: 1024
+  bos_token: 1024
   eos_token: 1026
   codebook_num: 8
 
