@@ -1,27 +1,38 @@
+pad_token: &pad_token 1025
+codebook_size: &codebook_size 1027
+codebook_num: &codebook_num 8
+max_len_token: &max_len_token 7500
+bos_token: &bos_token 1024
+eos_token: &eos_token 1026
+
 LowDataset:
   data_path: audio_files.jsonl
   dir_inputs: data/inputs
   dir_labels: data/labels
   stereo: False
-  batch_size: 1
   masking: False
   max_duration: 90
-  max_token_len: 7500
-  codebook_size: 1027
-  pad_token: 1025
-  bos_token: 1024
-  eos_token: 1026
-  codebook_num: 8
+  # Referenciar valores predeterminados
+  bos_token: *bos_token
+  eos_token: *eos_token
+  pad_token: *pad_token
+  max_len_token: *max_len_token
 
 lr: 0.0001
 epochs: 1
 bandwidth: 6.0
-stereo: False
+batch_size: 1
 
 Transformer:
+  # Referenciar valores predeterminados
+  pad_token: *pad_token
+  codebook_size: *codebook_size
+  codebook_num: *codebook_num
+  max_len_token: *max_len_token
   num_encoder_layers: 6
   num_decoder_layers: 6
   d_model: 128
   nhead: 4
   dropout: 0.1
   d_ff: 1024
+

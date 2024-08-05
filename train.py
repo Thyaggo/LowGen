@@ -2,8 +2,8 @@ import torch
 import torchaudio
 import torch.nn as nn
 from tqdm import tqdm
+import yaml
 
-from config import get_config
 from model import Transformer
 from dataset import LowDataset
 from encodec import EncodecModel
@@ -12,18 +12,14 @@ from torch.utils.data import DataLoader, random_split
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
 def get_dataloader(config, tokenizer_model):
     # It only has the train split, so we divide it overselves
     # Keep 90% for training, 10% for validation
 
-    ds_raw = LowDataset(data_path=config["data_path"],
-                        tokenizer_model= tokenizer_model,
-                        max_duration=config["max_duration"],
-                        max_len_token=config["max_token_len"],
-                        stereo=config["stereo"],
-                        dir_inputs=config["dir_inputs"],
-                        dir_labels=config["dir_labels"],
-                        device=DEVICE)
+    ds_raw = LowDataset(tokenizer_model, **config["LowDataset"])
 
     train_ds_size = int(0.9 * len(ds_raw))
     val_ds_size = len(ds_raw) - train_ds_size
@@ -56,16 +52,7 @@ def train_model(config):
 
     train_dataloader, val_dataloader = get_dataloader(config, tokenizer_model)
 
-    model = Transformer(
-        codebook_size = config["codebook_size"],
-        codebook_num = config["codebook_num"],
-        max_len_token = config["max_token_len"],
-        num_encoder_layers = config["num_encoder_layers"],
-        num_decoder_layers = config["num_decoder_layers"],
-        nhead=config["nhead"],
-        d_model=config["d_model"],
-        d_ff=config["d_ff"],
-    ).to(DEVICE)
+    model = Transformer(**config["Transformer"]).to(DEVICE)
 
     optimizer = torch.optim.Adam(model.parameters(), config["lr"])
     criterion = nn.CrossEntropyLoss(ignore_index=config["pad_token"])
@@ -114,8 +101,6 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
             
             # Initialize the decoder input with the sos token
             label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["bos_token"]).type_as(input_codes).to(DEVICE)
-            unkonwn_token = -1
-            map_input = torch.full((1, config["codebook_num"], config["max_token_len"]), unkonwn_token).type_as(input_codes).to(DEVICE)
             while True:
                 if label_input.size(2) == 10:
                     break
@@ -138,10 +123,8 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                     break
 
         wave = tokenizer_model.decode([(label_input, None)])
-
         torchaudio.save(f"output.wav", wave, 24000)
 
 
 if __name__ == "__main__":
-    config = get_config()
     train_model(config)

@@ -2,17 +2,21 @@ import pickle
 import pandas as pd
 import torchaudio
 import torch
+import yaml
 from typing import Tuple
-from config import get_config
 from encodec.utils import convert_audio
 
 from torch.utils.data import Dataset
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
 
 class LowDataset(Dataset):
     def __init__(self, 
-                 data_path: pd.DataFrame,
                  tokenizer_model,
+                 data_path: pd.DataFrame,
                  max_duration: int,
                  max_len_token: int,
                  stereo: bool = False,
@@ -22,7 +26,6 @@ class LowDataset(Dataset):
                  masking: bool = False,
                  dir_inputs: str = "data/inputs",
                  dir_labels: str = "data/labels",
-                 device: str = "cpu"
                  ):
         super().__init__()
         
@@ -124,24 +127,11 @@ def test(config):
     tokenizer_model = EncodecModel.encodec_model_24khz().to(DEVICE)
     tokenizer_model.set_target_bandwidth(config["bandwidth"])
     
-    dataset = LowDataset(data_path=config["data_path"], 
-                        tokenizer_model= tokenizer_model,
-                        max_duration=config["max_duration"], 
-                        max_len_token=config["max_token_len"],
-                        stereo=config["stereo"], 
-                        dir_inputs=config["dir_inputs"], 
-                        dir_labels=config["dir_labels"], 
-                        device=DEVICE)
-    data = dataset[0]
-    print(data["input_codes"].shape)
-    print(data["label_input"].shape)
-    print(data["label_codes"].shape)
-    print(data["label_mask"].shape)
-    print(data["input_mask"].shape)
+    dataset = LowDataset(tokenizer_model, **config["LowDataset"])
+
+    dataset[0]
     print("Test passed!")
 
 
-
 if __name__ == "__main__":
-    config = get_config()
     test(config)

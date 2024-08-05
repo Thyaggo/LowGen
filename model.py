@@ -210,21 +210,22 @@ class CoodebookRecontructionLayer(nn.Module):
     
 class Transformer(nn.Module):
     def __init__(self, 
-                 codebook_size: int , 
-                 codebook_num: int ,
+                 codebook_size: int, 
+                 codebook_num: int,
                  max_len_token: int,
                  num_encoder_layers: int = 6,
                  num_decoder_layers: int = 6,
-                 padding_token: Optional[int] = 1025,
+                 pad_token: Optional[int] = None,
                  d_model: int= 128,
                  nhead: int=8, 
                  dropout: float=0.1,
                  d_ff: int=2048) -> None:
         super().__init__()
+        
         self._d_model = d_model
         self._codebook_num = codebook_num
         self._codebook_size = codebook_size
-        self.embed = nn.ModuleList([InputEmbeddings(d_model, codebook_size, padding_token) for _ in range(codebook_num)])
+        self.embed = nn.ModuleList([InputEmbeddings(d_model, codebook_size, pad_token) for _ in range(codebook_num)])
         self.pos = PositionalEncoding(d_model, max_len_token, dropout)
         
         self.encoder_block = EncoderBlock(d_model, d_ff, nhead , dropout)
