@@ -11,9 +11,10 @@ def get_config():
         "lr": 10**-4,
         "max_duration": 90,
         "max_token_len": 7500,
-        "codebook_size": 1024 + 2,
+        "codebook_size": 1024 + 3,
         "pad_token": 1025,
-        "special_token": 1024,
+        "bos_toke": 1024,
+        "eos_token": 1026,
         "bandwidth": 6.0,
         "codebook_num": 8,
         

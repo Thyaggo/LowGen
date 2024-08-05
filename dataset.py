@@ -5,12 +5,6 @@ import torch
 from typing import Tuple
 from config import get_config
 from encodec.utils import convert_audio
-from codebooks_patterns import (
-    DelayedPatternProvider,
-    ParallelPatternProvider,
-    Pattern,
-    UnrolledPatternProvider,
-)
 
 from torch.utils.data import Dataset
 
@@ -23,6 +17,8 @@ class LowDataset(Dataset):
                  max_len_token: int,
                  stereo: bool = False,
                  pad_token: int = 1025,
+                 bos_token: int = 1024,
+                 eos_token: int = 1026,
                  masking: bool = False,
                  dir_inputs: str = "data/inputs",
                  dir_labels: str = "data/labels",
@@ -43,6 +39,8 @@ class LowDataset(Dataset):
         self.device = device
         
         self.pad_token = pad_token
+        self.bos_token = bos_token
+        self.eos_token = eos_token
         self.masking = masking
         self.dir_inputs = dir_inputs
         self.dir_labels = dir_labels
@@ -72,11 +70,15 @@ class LowDataset(Dataset):
         input_codes = self._get_codes(input_wav)
         label_codes = self._get_codes(label_wav)
         
-        input_codes = self._pattern_provider(input_codes)
-        label_codes = self._pattern_provider(label_codes)
+        input_codes = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token),
+                                 input_codes, 
+                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token)], dim=-1)
         
-        label_input = label_codes
-        label_codes = label_codes[:,1:]
+        label_input = torch.cat([torch.empty(label_codes.size(0), 1).fill_(self.bos_token),
+                                label_codes], dim=-1)
+        
+        label_codes = torch.cat([label_codes, 
+                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token)], dim=-1)
         
         input_codes, input_mask = self._padding_codes(input_codes, self.max_len_token, self.pad_token, self.masking)
         label_input, _ = self._padding_codes(label_input, self.max_len_token, self.pad_token, self.masking)
@@ -99,14 +101,7 @@ class LowDataset(Dataset):
         if wav.shape[-1] > max_len * sample_rate:
             wav = wav[:,:max_len * sample_rate]
         return wav
-    
-    def _pattern_provider(self, codes: torch.Tensor, special_token: int = 1024) -> torch.Tensor:
-        K, T = codes.shape
-        pattern_provider = DelayedPatternProvider(K)
-        partern = pattern_provider.get_pattern(T)
-        values , _ , _ = partern.build_pattern_sequence(codes.unsqueeze(0), special_token=special_token)
-        return values.squeeze()
-    
+        
     def _padding_codes(self, codes: torch.Tensor, max_len: int, padding_token : int, masking : bool = False) -> torch.Tensor:
         K, T = codes.shape
         if T < max_len:

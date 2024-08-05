@@ -8,7 +8,6 @@ from model import Transformer
 from dataset import LowDataset
 from encodec import EncodecModel
 
-from codebooks_patterns import DelayedPatternProvider
 from torch.utils.data import DataLoader, random_split
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -102,7 +101,6 @@ def train_model(config):
 
 def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecModel, val_dataloader: DataLoader):
     model.eval()
-    pattern_provider = DelayedPatternProvider(config["codebook_num"])
 
     with torch.no_grad():
         for batch in val_dataloader:
@@ -115,7 +113,9 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
             input = model.encode(input_codes)
             
             # Initialize the decoder input with the sos token
-            label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["special_token"]).type_as(input_codes).to(DEVICE)
+            label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["bos_token"]).type_as(input_codes).to(DEVICE)
+            unkonwn_token = -1
+            map_input = torch.full((1, config["codebook_num"], config["max_token_len"]), unkonwn_token).type_as(input_codes).to(DEVICE)
             while True:
                 if label_input.size(2) == 10:
                     break
@@ -134,13 +134,10 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                     [label_input, next_word], dim=2
                 )
 
-                if torch.all(next_word[:,:config["codebook_num"]-1] == torch.empty(1, config["codebook_num"]-1, 1).fill_(config["special_token"]).type_as(input_codes).to(DEVICE)):
+                if torch.any(next_word == config["eos_token"]):
                     break
 
-        partern = pattern_provider.get_pattern(label_input.size(2))
-        values , _ , _ = partern.revert_pattern_sequence(label_input, special_token=config["special_token"])
-
-        wave = tokenizer_model.decode([(values, None)])
+        wave = tokenizer_model.decode([(label_input, None)])
 
         torchaudio.save(f"output.wav", wave, 24000)
 
