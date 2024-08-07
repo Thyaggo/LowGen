@@ -77,13 +77,14 @@ class ResidualConnection(nn.Module):
 
 class MultiHeadAttentionBlock(nn.Module):
 
-    def __init__(self, d_model: int, h: int, dropout: float) -> None:
+    def __init__(self, d_model: int, h: int, dropout: float, flash: bool) -> None:
         super().__init__()
         self.d_model = d_model # Embedding vector size
         self.h = h # Number of heads
         # Make sure d_model is divisible by h
         assert d_model % h == 0, "d_model is not divisible by h"
-
+        
+        self.flash = flash # Enable flash attention
         self.d_k = d_model // h # Dimension of vector seen by each head
         self.w_q = nn.Linear(d_model, d_model, bias=False) # Wq
         self.w_k = nn.Linear(d_model, d_model, bias=False) # Wk
@@ -93,7 +94,7 @@ class MultiHeadAttentionBlock(nn.Module):
         self.dropoutvalue = dropout
 
     @staticmethod
-    def attention(query, key, value, mask, dropout, flash_attention: bool = True, is_casual = False):
+    def attention(query, key, value, mask, dropout, flash_attention, is_casual):
         if flash_attention:
             return F.scaled_dot_product_attention(query, key, value, mask, dropout, is_causal=is_casual), None
         
@@ -111,7 +112,7 @@ class MultiHeadAttentionBlock(nn.Module):
         # return attention scores which can be used for visualization
         return (attention_scores @ value), attention_scores
         
-    def forward(self, q, k, v, mask, flash_attention: bool = True, is_casual: bool = False):
+    def forward(self, q, k, v, mask, is_casual: bool = False):
         query = self.w_q(q) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
         key = self.w_k(k) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
         value = self.w_v(v) # (batch, seq_len, d_model) --> (batch, seq_len, d_model)
@@ -123,8 +124,8 @@ class MultiHeadAttentionBlock(nn.Module):
 
         # Calculate attention
         x, self.attention_scores = MultiHeadAttentionBlock.attention(query, key, value, mask, 
-                                                                     self.dropoutvalue if flash_attention else self.dropout, 
-                                                                     flash_attention, is_casual)
+                                                                     self.dropoutvalue if self.flash else self.dropout, 
+                                                                     self.flash, is_casual)
         
         # Combine all the heads together
         # (batch, h, seq_len, d_k) --> (batch, seq_len, h, d_k) --> (batch, seq_len, d_model)
@@ -167,10 +168,10 @@ class Encoder(nn.Module):
 
 class DecoderBlock(nn.Module):
 
-    def __init__(self, d_model: int, d_ff: int=2048,  nhead: int=8, dropout: float = 0.1) -> None:
+    def __init__(self, d_model: int, d_ff: int=2048,  nhead: int=8, dropout: float = 0.1, flash: bool = True) -> None:
         super().__init__()
-        self.self_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout)
-        self.cross_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout)
+        self.self_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout, flash)
+        self.cross_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout, flash)
         self.feed_forward_block = FeedForwardBlock(d_model, d_ff, dropout)
         self.residual_connections = nn.ModuleList([ResidualConnection(d_model, dropout) for _ in range(3)])
 
@@ -209,17 +210,28 @@ class CoodebookRecontructionLayer(nn.Module):
 
     
 class Transformer(nn.Module):
-    def __init__(self, 
-                 codebook_size: int, 
-                 codebook_num: int,
-                 max_len_token: int,
-                 num_encoder_layers: int = 6,
-                 num_decoder_layers: int = 6,
-                 pad_token: Optional[int] = None,
-                 d_model: int= 128,
-                 nhead: int=8, 
-                 dropout: float=0.1,
-                 d_ff: int=2048) -> None:
+    """
+    The Transformer model with the addition of the codebook reconstruction 
+    layer and the codebook projection layer to the model architecture
+    
+    params:
+        codebook_size: int, the size of the codebook
+        codebook_num: int, the number of codebooks
+        max_len_token: int, the maximum length of the token
+        num_encoder_layers: int, the number of encoder layers
+        num_decoder_layers: int, the number of decoder layers
+        pad_token: Optional[int], the padding token
+        d_model: int, the dimension of the model
+        nhead: int, the number of heads in the multihead attention
+        dropout: float, the dropout rate
+        d_ff: int, the dimension of the feed forward network
+        flash: bool, whether to use the flash attention mechanism
+    """
+    def __init__(self, codebook_size: int, codebook_num: int, max_len_token: int,
+                 num_encoder_layers: int = 6, num_decoder_layers: int = 6, pad_token: Optional[int] = None,
+                 d_model: int= 128, nhead: int=8, dropout: float=0.1, d_ff: int=2048,
+                 flash: bool = True
+                 ) -> None:
         super().__init__()
         
         self._d_model = d_model
@@ -228,10 +240,10 @@ class Transformer(nn.Module):
         self.embed = nn.ModuleList([InputEmbeddings(d_model, codebook_size, pad_token) for _ in range(codebook_num)])
         self.pos = PositionalEncoding(d_model, max_len_token, dropout)
         
-        self.encoder_block = EncoderBlock(d_model, d_ff, nhead , dropout)
+        self.encoder_block = EncoderBlock(d_model, d_ff, nhead , dropout, flash)
         self.encoder = Encoder(d_model, self.encoder_block, num_encoder_layers)
         
-        self.decoder_block = DecoderBlock(d_model, d_ff, nhead , dropout)
+        self.decoder_block = DecoderBlock(d_model, d_ff, nhead , dropout, flash)
         self.decoder = Decoder(d_model, self.decoder_block, num_decoder_layers)
 
         self.projection_layer = nn.ModuleList([CoodebookRecontructionLayer(d_model, codebook_size) for _ in range(codebook_num)])
@@ -259,6 +271,9 @@ class Transformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
+    # Encoder and Decoder forward pass
+    # the forward pass is similar to the original transformer model with the addition of the codebook
+    # The codebook is a tensor of shape (batch, codebook_num, seq_len, codebook_size)
     def encode(self, src: torch.Tensor, src_mask: Optional[torch.Tensor] = None):
         # (batch, seq_len, d_model)
         B, K, T = src.shape
