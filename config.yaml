@@ -18,6 +18,7 @@ LowDataset:
   pad_token: *pad_token
   max_len_token: *max_len_token
 
+stereo: False
 lr: 0.0001
 epochs: 1
 bandwidth: 6.0

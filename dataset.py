@@ -73,15 +73,15 @@ class LowDataset(Dataset):
         input_codes = self._get_codes(input_wav)
         label_codes = self._get_codes(label_wav)
         
-        input_codes = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token),
+        input_codes = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token).to(input_codes.device).type_as(input_codes),
                                  input_codes, 
-                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token)], dim=-1)
+                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token).to(input_codes.device).type_as(input_codes)], dim=-1)
         
-        label_input = torch.cat([torch.empty(label_codes.size(0), 1).fill_(self.bos_token),
+        label_input = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token).to(label_codes.device).type_as(label_codes),
                                 label_codes], dim=-1)
         
         label_codes = torch.cat([label_codes, 
-                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token)], dim=-1)
+                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token).to(label_codes.device).type_as(label_codes)], dim=-1)
         
         input_codes, input_mask = self._padding_codes(input_codes, self.max_len_token, self.pad_token, self.masking)
         label_input, _ = self._padding_codes(label_input, self.max_len_token, self.pad_token, self.masking)

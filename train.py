@@ -102,11 +102,8 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
             # Initialize the decoder input with the sos token
             label_input = torch.empty(1, config["codebook_num"], 1).fill_(config["bos_token"]).type_as(input_codes).to(DEVICE)
             while True:
-                if label_input.size(2) == 10:
+                if label_input.size(2) == config["max_len_token"]:
                     break
-
-                # # build mask for target
-                # tgt_mask = model.generate_square_subsequent_mask(label_input.size(2)).type_as(input_mask).to(DEVICE)
 
                 # calculate output
                 out = model.decode(src=input, tgt=label_input)
@@ -122,8 +119,10 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                 if torch.any(next_word == config["eos_token"]):
                     break
 
+        mask = ((label_input == config["bos_token"]).any(dim=1) | (label_input ==config["eos_token"]).any(dim=1)).squeeze()
+        label_input = label_input[:, :, ~mask]
         wave = tokenizer_model.decode([(label_input, None)])
-        torchaudio.save(f"output.wav", wave, 24000)
+        torchaudio.save(f"output.wav", wave.cpu().squeeze(0), 24000)
 
 
 if __name__ == "__main__":
