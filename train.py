@@ -4,8 +4,10 @@ import torch.nn as nn
 from tqdm import tqdm
 import yaml
 
+from miditok import REMI, TokenizerConfig
+from pathlib import Path
 from model import Transformer
-from dataset import LowDataset
+from dataset import LowDataset, collate_fn
 from encodec import EncodecModel
 
 from torch.utils.data import DataLoader, random_split
@@ -13,7 +15,7 @@ from torch.utils.data import DataLoader, random_split
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def get_dataloader(config, tokenizer_model):
+def get_dataloader(config, tokenizer_model, tokenizer_midi):
     """
     Get the dataloader for the training and validation dataset
     
@@ -27,7 +29,8 @@ def get_dataloader(config, tokenizer_model):
     val_ds_size = len(ds_raw) - train_ds_size
     train_ds, val_ds = random_split(ds_raw, [469, 1])
 
-    train_dataloader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True)
+    collate = collate_fn(tokenizer_midi.pad_token_id, config["pad_token"])
+    train_dataloader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True, collate_fn=collate)
     val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
 
     return train_dataloader, val_dataloader
@@ -52,13 +55,24 @@ def encodec_model(stereo: bool = False, bandwidth: float = 6.0, device: str = "c
     model.set_target_bandwidth(bandwidth)
     return model
 
+def midi_tokenizer(config):
+    """Train the tokenizer model on the midi files
+    """
+    midi_config = TokenizerConfig(**config["TokenizerConfig"])
+    tokenizer = REMI(midi_config)
+    midi_paths = list(Path(config["LowDataset"]["dir_midi"]).glob("**/*.mid"))
+    tokenizer.train(vocab_size=30000, files_paths=midi_paths)
+    return tokenizer
+
 def train_model(config):
     # Get the tokenizer model
     tokenizer_model = encodec_model(config["stereo"], config["bandwidth"], DEVICE)
+    # Get the midi tokenizer
+    tokenizer_midi = midi_tokenizer(config)
     # Get the dataloader
-    train_dataloader, val_dataloader = get_dataloader(config, tokenizer_model)
+    train_dataloader, val_dataloader = get_dataloader(config, tokenizer_model, tokenizer_midi)
     # Get the model
-    model = Transformer(**config["Transformer"]).to(DEVICE)
+    model = Transformer(pad_midi = tokenizer_midi.pad_token_id, **config["Transformer"]).to(DEVICE)
 
     # Initialize the optimizer and the criterion
     optimizer = torch.optim.Adam(model.parameters(), config["lr"])

@@ -1,12 +1,13 @@
-import pickle
+import os
 import pandas as pd
 import torchaudio
 import torch
 import yaml
-from typing import Tuple
+from typing import Dict, Callable
 from encodec.utils import convert_audio
 
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -16,9 +17,8 @@ with open("config.yaml", "r") as f:
 class LowDataset(Dataset):
     def __init__(self, 
                  tokenizer_model,
-                 data_path: pd.DataFrame,
+                 tokenizer_midi,
                  max_duration: int,
-                 max_len_token: int,
                  stereo: bool = False,
                  pad_token: int = 1025,
                  bos_token: int = 1024,
@@ -26,21 +26,15 @@ class LowDataset(Dataset):
                  masking: bool = False,
                  dir_inputs: str = "data/inputs",
                  dir_labels: str = "data/labels",
+                 dir_midi: str = "data/out"
                  ):
         super().__init__()
         
-        with open(data_path, "rb") as f:
-            if "jsonl" in data_path:
-                self.data_path = pd.read_json(f, orient="records", lines=True)
-            elif "csv" in data_path:
-                self.data_path = pd.read_csv(f)
-            elif "pkl" in data_path:
-                self.data_path = pickle.load(f)
-            else:
-                raise ValueError("Invalid data path")
+        self.data_path = os.listdir(dir_labels)
+        self.dir_midi = dir_midi
             
         self.device = device
-        
+        self.tokenizer = tokenizer_midi
         self.pad_token = pad_token
         self.bos_token = bos_token
         self.eos_token = eos_token
@@ -50,48 +44,37 @@ class LowDataset(Dataset):
         self.channels = 2 if stereo else 1
         self.sample_rate = 48000 if stereo else 24000
         self.max_duration = max_duration
-        self.max_len_token = max_len_token
 
         self.model = tokenizer_model
 
     def __len__(self) -> int:
         return len(self.data_path)
 
-    def __getitem__(self, idx) -> Tuple[torch.Tensor]:
-        input_path = self.data_path.iloc[idx]["input"]
+    def __getitem__(self, idx) -> Dict[torch.Tensor]:
         label_path = self.data_path.iloc[idx]["label"]
+        midi_path = f"{self.dir_midi}/{label_path}_basic_pitch.mid"
         
-        input_wav, input_sr = torchaudio.load(f"{self.dir_inputs}/{input_path}")
         label_wav, label_sr = torchaudio.load(f"{self.dir_labels}/{label_path}")
         
-        input_wav = convert_audio(input_wav, input_sr, self.sample_rate, self.channels)
+        input_codes = self.tokenizer.encode(midi_path)[0].ids
+        
         label_wav = convert_audio(label_wav, label_sr, self.sample_rate, self.channels)
         
-        input_wav = self._cut_wave(input_wav, self.max_duration, self.sample_rate)
         label_wav = self._cut_wave(label_wav, self.max_duration, self.sample_rate)
         
-        input_codes = self._get_codes(input_wav)
         label_codes = self._get_codes(label_wav)
         
-        input_codes = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token).to(input_codes.device).type_as(input_codes),
-                                 input_codes, 
-                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token).to(input_codes.device).type_as(input_codes)], dim=-1)
+        input_codes = torch.cat([self.tokenizer["BOS_None"], input_codes, self.tokenizer["EOS_None"]], dim=-1)
         
-        label_input = torch.cat([torch.empty(input_codes.size(0), 1).fill_(self.bos_token).to(label_codes.device).type_as(label_codes),
-                                label_codes], dim=-1)
+        label_input = torch.cat([torch.empty(label_input.size(0), 1).fill_(self.bos_token).to(label_input.device).type_as(label_input),
+                                label_input], dim=-1)
         
         label_codes = torch.cat([label_codes, 
                                  torch.empty(label_codes.size(0), 1).fill_(self.eos_token).to(label_codes.device).type_as(label_codes)], dim=-1)
-        
-        input_codes, input_mask = self._padding_codes(input_codes, self.max_len_token, self.pad_token, self.masking)
-        label_input, _ = self._padding_codes(label_input, self.max_len_token, self.pad_token, self.masking)
-        label_codes, label_mask = self._padding_codes(label_codes, self.max_len_token, self.pad_token, self.masking)
 
         return {
             "input_codes": input_codes,
-            #"input_mask": input_mask,
             "label_input": label_input,
-            #"label_mask": label_mask,
             "label_codes": label_codes
         }
     
@@ -104,19 +87,33 @@ class LowDataset(Dataset):
         if wav.shape[-1] > max_len * sample_rate:
             wav = wav[:,:max_len * sample_rate]
         return wav
+    
         
-    def _padding_codes(self, codes: torch.Tensor, max_len: int, padding_token : int, masking : bool = False) -> torch.Tensor:
-        K, T = codes.shape
-        if T < max_len:
-            pad = torch.full((K, max_len - T), padding_token).to(codes.device)
-            codes = torch.cat([codes, pad], dim=-1)
-            mask = (codes == padding_token)[0]
-        else: 
-            mask = torch.full((T,), False, dtype=torch.bool)
-        if masking:
-            return codes, mask
-        else:
-            return codes, None
+
+def collate_fn(midi_pad: int, model_pad: int) -> Callable:  
+    """
+    Custom collate function to pad sequences in a batch.
+    
+    Args:
+        batch: List of samples from the dataset.
+        midi_pad: Padding value for MIDI sequences.
+        model_pad: Padding value for model sequences.
+        
+    Returns:
+        A dictionary containing padded input codes, label input, and label codes.
+    """
+    def collate(batch, midi_pad = midi_pad, model_pad = model_pad) -> dict:
+        input_codes = pad_sequence([item["input_codes"] for item in batch], batch_first=True, padding_value=midi_pad)
+        label_input = pad_sequence([item["label_input"] for item in batch], batch_first=True, padding_value=model_pad)
+        label_codes = pad_sequence([item["label_codes"] for item in batch], batch_first=True, padding_value=model_pad)
+        
+        return {
+            "input_codes": input_codes,
+            "label_input": label_input,
+            "label_codes": label_codes
+        }
+    return collate
+
 
 
 def test(config):

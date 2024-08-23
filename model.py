@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+import yaml
 from typing import Optional
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -139,9 +140,9 @@ class MultiHeadAttentionBlock(nn.Module):
 
 class EncoderBlock(nn.Module):
 
-    def __init__(self, d_model: int, d_ff: int=2048,  nhead: int=8, dropout: float = 0.1) -> None:
+    def __init__(self, d_model: int, d_ff: int=2048,  nhead: int=8, dropout: float = 0.1, flash: bool = True) -> None:
         super().__init__()
-        self.self_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout)
+        self.self_attention_block = MultiHeadAttentionBlock(d_model, nhead, dropout, flash)
         self.feed_forward_block = FeedForwardBlock(d_model, d_ff, dropout)
         self.residual_connections = nn.ModuleList([ResidualConnection(d_model, dropout) for _ in range(2)])
     
@@ -214,31 +215,34 @@ class Transformer(nn.Module):
     The Transformer model with the addition of the codebook reconstruction 
     layer and the codebook projection layer to the model architecture
     
-    params:
-        codebook_size: int, the size of the codebook
-        codebook_num: int, the number of codebooks
-        max_len_token: int, the maximum length of the token
-        num_encoder_layers: int, the number of encoder layers
-        num_decoder_layers: int, the number of decoder layers
-        pad_token: Optional[int], the padding token
-        d_model: int, the dimension of the model
-        nhead: int, the number of heads in the multihead attention
-        dropout: float, the dropout rate
-        d_ff: int, the dimension of the feed forward network
-        flash: bool, whether to use the flash attention mechanism
+    :params codebook_size: int, the size of the codebook
+    :params codebook_num: int, the number of codebooks
+    :params max_len_token: int, the maximum length of the token
+    :params num_encoder_layers: int, the number of encoder layers
+    :params num_decoder_layers: int, the number of decoder layers
+    :params pad_token: Optional[int], the padding token
+    :params d_model: int, the dimension of the model
+    :params nhead: int, the number of heads in the multihead attention
+    :params dropout: float, the dropout rate
+    :params d_ff: int, the dimension of the feed forward network
+    :params flash: bool, whether to use the flash attention mechanism
     """
-    def __init__(self, codebook_size: int, codebook_num: int, max_len_token: int,
+    def __init__(self, codebook_size: int, codebook_num: int, max_len_token: int, max_len_midi: int,
                  num_encoder_layers: int = 6, num_decoder_layers: int = 6, pad_token: Optional[int] = None,
-                 d_model: int= 128, nhead: int=8, dropout: float=0.1, d_ff: int=2048,
-                 flash: bool = True
+                 pad_midi: Optional[int] = None, midi_size: int = 30000, d_model: int= 128, nhead: int=8,
+                 dropout: float=0.1, d_ff: int=2048, flash: bool = True
                  ) -> None:
         super().__init__()
         
         self._d_model = d_model
         self._codebook_num = codebook_num
         self._codebook_size = codebook_size
+        
         self.embed = nn.ModuleList([InputEmbeddings(d_model, codebook_size, pad_token) for _ in range(codebook_num)])
+        self.midi_embed = InputEmbeddings(d_model, midi_size, pad_midi)
+        
         self.pos = PositionalEncoding(d_model, max_len_token, dropout)
+        self.midi_pos = PositionalEncoding(d_model, max_len_midi, dropout)
         
         self.encoder_block = EncoderBlock(d_model, d_ff, nhead , dropout, flash)
         self.encoder = Encoder(d_model, self.encoder_block, num_encoder_layers)
@@ -250,7 +254,6 @@ class Transformer(nn.Module):
 
         self.apply(self._init_weights)
         
-
     @property
     def d_model(self):
         return self._d_model
@@ -263,6 +266,7 @@ class Transformer(nn.Module):
     def codebook_size(self):
         return self._codebook_size
     
+    
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -274,17 +278,11 @@ class Transformer(nn.Module):
     # Encoder and Decoder forward pass
     # the forward pass is similar to the original transformer model with the addition of the codebook
     # The codebook is a tensor of shape (batch, codebook_num, seq_len, codebook_size)
+    
     def encode(self, src: torch.Tensor, src_mask: Optional[torch.Tensor] = None):
         # (batch, seq_len, d_model)
-        B, K, T = src.shape
         
-        assert K == self.codebook_num, f"Expected {self.codebook_num} codebooks, got {K}"
-        
-        embeds = torch.empty(B, K, T, self.d_model).to(src.device)
-        for i, emb in enumerate(self.embed):
-            embeds[:,i] = emb(src[:,i])
-        src = embeds.sum(dim=1)
-        del embeds
+        src = self.midi_embed(src)
         src = self.pos(src)
         return self.encoder(src, src_mask)
     
@@ -308,15 +306,16 @@ class Transformer(nn.Module):
             proj[:,i] = proj_layer(x)
         return proj
 
-def test():
-    model = Transformer(codebook_size=1024 + (2), codebook_num=8, max_len_token=10000).to(DEVICE)
-    src = torch.randint(0, 1025, (4, 8, 10000)).to(DEVICE)
-    tgt = torch.randint(0, 1025, (4, 8, 10000)).to(DEVICE)
+def test(config):
+    model = Transformer(**config["Transformer"]).to(DEVICE)
+    src = torch.randint(0, 30000, (4, 100)).to(DEVICE)
+    tgt = torch.randint(0, 1025, (4, 8, 100)).to(DEVICE)
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
     enc = model.encode(src)
     dec = model.decode(enc, tgt)
     proj = model.project(dec)
+    print("-----------------------------------")
     print(f"Encoder output: {enc.shape}")
     print(f"Decoder output: {dec.shape}")
     print(f"Projection output: {proj.shape}")
@@ -324,4 +323,6 @@ def test():
     
 
 if __name__ == "__main__":
-    test()
+    with open("config.yaml", "r") as file:
+        config = yaml.safe_load(file)
+    test(config)
