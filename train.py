@@ -3,6 +3,7 @@ import torchaudio
 import torch.nn as nn
 from tqdm import tqdm
 import yaml
+import warnings
 
 from miditok import REMI, TokenizerConfig
 from pathlib import Path
@@ -23,11 +24,11 @@ def get_dataloader(config, tokenizer_model, tokenizer_midi):
         config (dict): The configuration dictionary
         tokenizer_model (EncodecModel): The tokenizer model
     """
-    ds_raw = LowDataset(tokenizer_model, **config["LowDataset"])
+    ds_raw = LowDataset(tokenizer_model, tokenizer_midi, **config["LowDataset"])
 
     train_ds_size = int(0.9 * len(ds_raw))
     val_ds_size = len(ds_raw) - train_ds_size
-    train_ds, val_ds = random_split(ds_raw, [469, 1])
+    train_ds, val_ds = random_split(ds_raw, [len(ds_raw)-1, 1])
 
     collate = collate_fn(tokenizer_midi.pad_token_id, config["pad_token"])
     train_dataloader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True, collate_fn=collate)
@@ -58,7 +59,7 @@ def encodec_model(stereo: bool = False, bandwidth: float = 6.0, device: str = "c
 def midi_tokenizer(config):
     """Train the tokenizer model on the midi files
     """
-    midi_config = TokenizerConfig(**config["TokenizerConfig"])
+    midi_config = TokenizerConfig()
     tokenizer = REMI(midi_config)
     midi_paths = list(Path(config["LowDataset"]["dir_midi"]).glob("**/*.mid"))
     tokenizer.train(vocab_size=30000, files_paths=midi_paths)
@@ -82,7 +83,7 @@ def train_model(config):
     try:
         model: Transformer = torch.compile(model)
     except:
-        print("Compilation failed, the model will be slower on the inference")
+        warnings.warn("The model couldn't be compiled, it will be slower on the inference")
 
     for epoch in range(config["epochs"]):
         # Set the model to train mode and empty the cache

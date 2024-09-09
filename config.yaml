@@ -9,10 +9,8 @@ eos_token: &eos_token 1026
 max_len_token: &max_len_token 7500
 
 LowDataset:
-  data_path: audio_files.jsonl
-  dir_inputs: data/inputs
-  dir_labels: data/labels
-  dir_midi: data/out
+  dir_labels: data/lowdata
+  dir_midi: data/lowmidi
   stereo: *stereo
   masking: False
   max_duration: 90
@@ -40,16 +38,3 @@ Transformer:
   flash: True
   max_len_token: *max_len_token
   max_len_midi: 13148
-
-TokenizerConfig:
-  pitch_range: [21, 109]
-  beat_res: {0-4: 8, 4-12: 4}
-  num_velocities: 32
-  special_tokens: [PAD, BOS, EOS, MASK]
-  use_chords: true
-  use_rests: false
-  use_tempos: true
-  use_time_signatures: false
-  use_programs: false
-  num_tempos: 32
-  tempo_range: [40, 250]
