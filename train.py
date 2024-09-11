@@ -4,6 +4,7 @@ import torch.nn as nn
 from tqdm import tqdm
 import yaml
 import warnings
+import wandb
 
 from miditok import REMI, TokenizerConfig
 from pathlib import Path
@@ -15,6 +16,7 @@ from torch.utils.data import DataLoader, random_split
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+torch.set_float32_matmul_precision("high")
 
 def get_dataloader(config, tokenizer_model, tokenizer_midi):
     """
@@ -101,19 +103,20 @@ def train_model(config):
             label_codes = data["label_codes"].to(DEVICE) # (B, K, T)
             #decoder_mask = data["label_mask"].to(DEVICE) # (B, T) & (B, T, T)
             
+            optimizer.zero_grad()
+            
             # Model forward
-            encoder_output = model.encode(input_codes)
-            decode_output = model.decode(encoder_output, label_input)
-            proj_output = model.project(decode_output)
+            with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
+                encoder_output = model.encode(input_codes)
+                decode_output = model.decode(encoder_output, label_input)
+                proj_output = model.project(decode_output)
 
-            loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
+                loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
+            
+            # wandb.log({"loss": loss.item()})
             
             loss.backward()
             optimizer.step()
-            
-            optimizer.zero_grad(set_to_none=True)
-            
-            print(f"Epoch {epoch}, Batch {i}, Loss {loss.item()}")
 
     run_validation(config, model, tokenizer_model, val_dataloader)
 
@@ -170,5 +173,8 @@ if __name__ == "__main__":
     # Open the config file
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
+    
+    # wandb.init(project="LowGen",
+    #            config=config)
     
     train_model(config)

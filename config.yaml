@@ -6,14 +6,13 @@ stereo: &stereo False
 codebook_num: &codebook_num 8
 bos_token: &bos_token 1024
 eos_token: &eos_token 1026
-max_len_token: &max_len_token 7500
+max_len_token: &max_len_token 21000
 
 LowDataset:
   dir_labels: data/lowdata
   dir_midi: data/lowmidi
   stereo: *stereo
   masking: False
-  max_duration: 90
   # Referenciar valores predeterminados
   bos_token: *bos_token
   eos_token: *eos_token

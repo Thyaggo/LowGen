@@ -16,7 +16,6 @@ class LowDataset(Dataset):
     def __init__(self, 
                  tokenizer_model,
                  tokenizer_midi,
-                 max_duration: int,
                  stereo: bool = False,
                  pad_token: int = 1025,
                  bos_token: int = 1024,
@@ -40,7 +39,6 @@ class LowDataset(Dataset):
         self.dir_labels = dir_labels
         self.channels = 2 if stereo else 1
         self.sample_rate = 48000 if stereo else 24000
-        self.max_duration = max_duration
 
         self.model = tokenizer_model
 
@@ -57,13 +55,13 @@ class LowDataset(Dataset):
         
         label_wav = convert_audio(label_wav, label_sr, self.sample_rate, self.channels)
         
-        label_wav = self._cut_wave(label_wav, self.max_duration, self.sample_rate)
+        with torch.no_grad():
+            frames = self.model.encode(label_wav.unsqueeze(0).to(self.device))
+        label_codes = torch.cat([encoded[0] for encoded in frames], dim=-1).squeeze(0)
         
-        label_codes = self._get_codes(label_wav)
-        
-        input_codes = torch.cat([torch.Tensor(self.tokenizer["BOS_None"]), 
-                                 torch.Tensor(input_codes),
-                                 torch.Tensor(self.tokenizer["EOS_None"])], dim=-1)
+        input_codes = torch.cat([torch.Tensor(self.tokenizer["BOS_None"]).to(torch.long), 
+                                 torch.Tensor(input_codes).to(torch.long),
+                                 torch.Tensor(self.tokenizer["EOS_None"]).to(torch.long)], dim=-1)
         
         label_input = torch.cat([torch.empty(label_codes.size(0), 1).fill_(self.bos_token).to(label_codes.device).type_as(label_codes),
                                 label_codes], dim=-1)
@@ -76,16 +74,7 @@ class LowDataset(Dataset):
             "label_input": label_input,
             "label_codes": label_codes
         }
-    
-    def _get_codes(self, wav: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            frames = self.model.encode(wav.unsqueeze(0).to(self.device))
-        return torch.cat([encoded[0] for encoded in frames], dim=-1).squeeze(0)
-    
-    def _cut_wave(self, wav: torch.Tensor, max_len: int, sample_rate: int) -> torch.Tensor:
-        if wav.shape[-1] > max_len * sample_rate:
-            wav = wav[:,:max_len * sample_rate]
-        return wav
+        
     
         
 

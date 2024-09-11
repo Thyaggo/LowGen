@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import time
 
 import yaml
 from typing import Optional
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 class FeedForwardBlock(nn.Module):
 
@@ -307,20 +308,24 @@ class Transformer(nn.Module):
         return proj
 
 def test(config):
+    torch.set_float32_matmul_precision("high")
     model = Transformer(**config["Transformer"]).to(DEVICE)
-    src = torch.randint(0, 30000, (4, 100)).to(DEVICE)
-    tgt = torch.randint(0, 1025, (4, 8, 100)).to(DEVICE)
+    src = torch.randint(0, 30000, (6, 21000)).to(DEVICE)
+    tgt = torch.randint(0, 1025, (6, 8, 21000)).to(DEVICE)
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
-    enc = model.encode(src)
-    dec = model.decode(enc, tgt)
-    proj = model.project(dec)
+    with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):
+        t0 = time.time()
+        enc = model.encode(src)
+        dec = model.decode(enc, tgt)
+        proj = model.project(dec)
+        t1 = time.time()
     print("-----------------------------------")
     print(f"Encoder output: {enc.shape}")
     print(f"Decoder output: {dec.shape}")
     print(f"Projection output: {proj.shape}")
     print("-----------------------------------")
-    
+    print(f"Time taken: {t1 - t0:.4f}")
 
 if __name__ == "__main__":
     with open("config.yaml", "r") as file:
