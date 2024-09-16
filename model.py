@@ -293,7 +293,7 @@ class Transformer(nn.Module):
 
         assert K == self.codebook_num, f"Expected {self.codebook_num} codebooks, got {K}"
 
-        embeds = torch.empty(B, K, T, self.d_model).to(tgt.device)
+        embeds = torch.empty((B, K, T, self._d_model), device=DEVICE)
         for i, emb in enumerate(self.embed):
             embeds[:,i] = emb(tgt[:,i])
         embeds = embeds.sum(dim=1)
@@ -310,8 +310,8 @@ class Transformer(nn.Module):
 def test(config):
     torch.set_float32_matmul_precision("high")
     model = Transformer(**config["Transformer"]).to(DEVICE)
-    src = torch.randint(0, 30000, (6, 21000)).to(DEVICE)
-    tgt = torch.randint(0, 1025, (6, 8, 21000)).to(DEVICE)
+    src = torch.randint(0, 30000, (5, 11000)).to(DEVICE)
+    tgt = torch.randint(0, 1025, (5, 8, 11000)).to(DEVICE)
     # src_mask = torch.ones(4, 1, 100)
     # tgt_mask = torch.ones(4, 1, 100)
     with torch.autocast(device_type=DEVICE, dtype=torch.bfloat16):

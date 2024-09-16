@@ -2,6 +2,7 @@ import torch
 import torchaudio
 import torch.nn as nn
 from tqdm import tqdm
+import os
 import yaml
 import warnings
 import wandb
@@ -16,6 +17,10 @@ from torch.utils.data import DataLoader, random_split
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(42)
+
 torch.set_float32_matmul_precision("high")
 
 def get_dataloader(config, tokenizer_model, tokenizer_midi):
@@ -28,8 +33,6 @@ def get_dataloader(config, tokenizer_model, tokenizer_midi):
     """
     ds_raw = LowDataset(tokenizer_model, tokenizer_midi, **config["LowDataset"])
 
-    train_ds_size = int(0.9 * len(ds_raw))
-    val_ds_size = len(ds_raw) - train_ds_size
     train_ds, val_ds = random_split(ds_raw, [len(ds_raw)-1, 1])
 
     collate = collate_fn(tokenizer_midi.pad_token_id, config["pad_token"])
@@ -79,6 +82,7 @@ def train_model(config):
 
     # Initialize the optimizer and the criterion
     optimizer = torch.optim.Adam(model.parameters(), config["lr"])
+    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.9)
     criterion = nn.CrossEntropyLoss(ignore_index=config["pad_token"])
     
     # Compile the model to make it faster on the inference
@@ -97,11 +101,9 @@ def train_model(config):
         for i, data in enumerate(batch_iterator):
             
             # Get the input and label codes, if you choose flash_attention, you won't need the mask
-            input_codes = data["input_codes"].to(DEVICE) # (B, K, T)
-            #input_mask = data["input_mask"].to(DEVICE) # (B, T)
+            input_codes = data["input_codes"].to(DEVICE) # (B, T)
             label_input = data["label_input"].to(DEVICE) # (B, K, T)
             label_codes = data["label_codes"].to(DEVICE) # (B, K, T)
-            #decoder_mask = data["label_mask"].to(DEVICE) # (B, T) & (B, T, T)
             
             optimizer.zero_grad()
             
@@ -113,12 +115,16 @@ def train_model(config):
 
                 loss = criterion(proj_output.view(-1, proj_output.shape[-1]), label_codes.view(-1))
             
-            # wandb.log({"loss": loss.item()})
+            #wandb.log({"loss": loss.item()})
+            batch_iterator.set_postfix({"loss": loss.item()})
             
             loss.backward()
             optimizer.step()
+            torch.cuda.synchronize()
+        
+        lr_scheduler.step()
 
-    run_validation(config, model, tokenizer_model, val_dataloader)
+        run_validation(config, model, tokenizer_model, val_dataloader)
 
 def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecModel, val_dataloader: DataLoader):
     """
@@ -133,7 +139,7 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
     model.eval()
 
     with torch.no_grad():
-        for batch in val_dataloader:
+        for i, batch in enumerate(val_dataloader):
             input_codes = batch["input_codes"].to(DEVICE) # (B, K, T)
 
             # check that the batch size is 1
@@ -148,7 +154,10 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
                     break
 
                 # calculate output
-                out = model.decode(src=input, tgt=label_input)
+                if label_input.size(2) >= config["sliding_window"]:
+                    out = model.decode(src=input, tgt=label_input[:, :, -config["sliding_window"]:])
+                else:
+                    out = model.decode(src=input, tgt=label_input)
 
                 # get next token
                 prob = model.project(out[:, -1].unsqueeze(1))
@@ -160,13 +169,20 @@ def run_validation(config: dict, model: Transformer, tokenizer_model: EncodecMod
 
                 if torch.any(next_word == config["eos_token"]):
                     break
-        # Remove the bos and eos token
-        mask = ((label_input == config["bos_token"]).any(dim=1) | (label_input ==config["eos_token"]).any(dim=1)).squeeze()
-        label_input = label_input[:, :, ~mask]
-        # Decode the discrete tokens to waveform
-        wave = tokenizer_model.decode([(label_input, None)])
-        # Save the waveform
-        torchaudio.save(f"output.wav", wave.cpu().squeeze(0), 24000)
+                
+                if label_input.size(2) % 100 == 0:
+                    print("Iteration", label_input.size(2))
+                    
+            # Remove the bos and eos token
+            mask = ((label_input == config["bos_token"]).any(dim=1) | (label_input ==config["eos_token"]).any(dim=1)).squeeze()
+            label_input = label_input[:, :, ~mask]
+            # Decode the discrete tokens to waveform
+            wave = tokenizer_model.decode([(label_input, None)])
+            # Save the waveform
+            if not os.path.exists(config["output_dir"]):
+                os.makedirs(config["output_dir"])
+            output_path = config["output_dir"]
+            torchaudio.save(f"{output_path}/output_{i}.wav", wave.cpu().squeeze(0), 24000)
 
 
 if __name__ == "__main__":
@@ -174,7 +190,6 @@ if __name__ == "__main__":
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
     
-    # wandb.init(project="LowGen",
-    #            config=config)
+    #wandb.init(project="LowGen",config=config)
     
     train_model(config)

@@ -59,15 +59,15 @@ class LowDataset(Dataset):
             frames = self.model.encode(label_wav.unsqueeze(0).to(self.device))
         label_codes = torch.cat([encoded[0] for encoded in frames], dim=-1).squeeze(0)
         
-        input_codes = torch.cat([torch.Tensor(self.tokenizer["BOS_None"]).to(torch.long), 
-                                 torch.Tensor(input_codes).to(torch.long),
-                                 torch.Tensor(self.tokenizer["EOS_None"]).to(torch.long)], dim=-1)
+        input_codes = torch.cat([torch.tensor([self.tokenizer["BOS_None"]]), 
+                                 torch.tensor(input_codes),
+                                 torch.tensor([self.tokenizer["EOS_None"]])], dim=-1)
         
-        label_input = torch.cat([torch.empty(label_codes.size(0), 1).fill_(self.bos_token).to(label_codes.device).type_as(label_codes),
+        label_input = torch.cat([torch.empty((label_codes.size(0), 1), device=device, dtype=label_codes.dtype).fill_(self.bos_token),
                                 label_codes], dim=-1)
         
         label_codes = torch.cat([label_codes, 
-                                 torch.empty(label_codes.size(0), 1).fill_(self.eos_token).to(label_codes.device).type_as(label_codes)], dim=-1)
+                                 torch.empty((label_codes.size(0), 1), device=device, dtype=label_codes.dtype).fill_(self.eos_token)], dim=-1)
 
         return {
             "input_codes": input_codes,

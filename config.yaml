@@ -18,10 +18,12 @@ LowDataset:
   eos_token: *eos_token
   pad_token: *pad_token
 
-lr: 0.0001
-epochs: 1
+lr: 0.01
+epochs: 50
 bandwidth: 6.0
-batch_size: 1
+batch_size: 2
+output_dir: model_output
+sliding_window: 5000
 
 Transformer:
   # Referenciar valores predeterminados
@@ -30,10 +32,10 @@ Transformer:
   codebook_num: *codebook_num
   num_encoder_layers: 6
   num_decoder_layers: 6
-  d_model: 128
-  nhead: 4
+  d_model: 512
+  nhead: 8
   dropout: 0.1
-  d_ff: 1024
+  d_ff: 2048
   flash: True
   max_len_token: *max_len_token
   max_len_midi: 13148
